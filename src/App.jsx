@@ -19,7 +19,7 @@ import {
   Activity, User, FileText, Plus, LogOut, Save, Search, Download, 
   CheckCircle, AlertCircle, Users, Lock, BedDouble, ClipboardList, 
   Stethoscope, Calendar, Link as LinkIcon, ExternalLink, Clock, 
-  Edit2, AlertTriangle, HeartPulse, Syringe, ChevronRight
+  Edit2, AlertTriangle, HeartPulse, Syringe, ChevronRight, FileDown
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN DINÁMICA DE FIREBASE ---
@@ -172,11 +172,12 @@ export default function UroRoundsApp() {
 
   // --- FIX CRÍTICO: EVITAR QUE EL MODAL SE RE-ABRA AL ESCRIBIR ---
   useEffect(() => {
-    // Solo abre el modal si existe, tenemos datos, Y NO ESTÁ YA ABIERTO
-    if (editPatientForm && editModalRef.current && !editModalRef.current.open) {
+    // CAMBIO CLAVE: Usamos editPatientForm?.id como dependencia, NO el objeto entero.
+    // Así, cuando escribes en los inputs (cambiando el objeto), este efecto NO se dispara.
+    if (editPatientForm?.id && editModalRef.current && !editModalRef.current.open) {
         editModalRef.current.showModal();
     }
-  }, [editPatientForm]);
+  }, [editPatientForm?.id]); // <-- Solo observar el ID
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -265,8 +266,8 @@ export default function UroRoundsApp() {
         medicalHistory: editPatientForm.medicalHistory
       });
       showFeedback('success', 'Ficha actualizada');
-      setEditPatientForm(null); 
       if (editModalRef.current) editModalRef.current.close();
+      setEditPatientForm(null); // Limpiar al final
     } catch (err) {
       showFeedback('error', "Error actualizando.");
     }
@@ -318,12 +319,25 @@ export default function UroRoundsApp() {
     }
   };
 
-  const downloadCSV = () => {
-    // USA LA LISTA FILTRADA (Activos o Egresados según lo que ves)
-    const listToExport = filteredPatients;
+  // --- FUNCIÓN CSV MEJORADA ---
+  const downloadCSV = (type) => {
+    // type can be 'active' or 'all' or 'discharged'
+    let listToExport = [];
+    let filename = "urorounds";
+
+    if (type === 'active') {
+        listToExport = patients.filter(p => p.status === 'hospitalizado');
+        filename += "_activos";
+    } else if (type === 'discharged') {
+        listToExport = patients.filter(p => p.status === 'egresado');
+        filename += "_egresados";
+    } else {
+        listToExport = patients; // Todos
+        filename += "_todo_historial";
+    }
     
     if (listToExport.length === 0) {
-      showFeedback('error', "No hay pacientes para exportar.");
+      showFeedback('error', "No hay datos para exportar.");
       return;
     }
     
@@ -350,9 +364,7 @@ export default function UroRoundsApp() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    // Nombre del archivo dinámico según lo que estés viendo
-    const prefix = showDischarged ? 'egresados' : 'activos';
-    link.setAttribute('download', `urorounds_${prefix}_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
+    link.setAttribute('download', `${filename}_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -486,7 +498,7 @@ export default function UroRoundsApp() {
              <ChevronRight className="rotate-180" size={16}/> Volver
           </button>
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6 relative">
-             {/* BOTÓN DE EDITAR SIEMPRE VISIBLE (INCLUSO EGRESADOS) */}
+             {/* BOTÓN DE EDITAR SIEMPRE VISIBLE */}
              <button onClick={() => openEditModal(activePatient)} className="absolute top-3 right-3 p-2 text-slate-400 bg-white/80 backdrop-blur rounded-full border border-slate-200 hover:text-blue-600 hover:bg-blue-50 transition-colors z-10 shadow-sm" title="Editar">
                 <Edit2 size={18} />
              </button>
@@ -747,8 +759,14 @@ export default function UroRoundsApp() {
             </div>
             </div>
         </div>
-        <div className="mt-6 flex justify-center md:justify-end pb-12 md:pb-0">
-            <button onClick={downloadCSV} className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 hover:underline decoration-slate-300 py-4"><Download size={14} /> Descargar censo (.csv)</button>
+        <div className="mt-6 flex flex-col md:flex-row justify-end items-center gap-4 pb-12 md:pb-0">
+            {/* BOTONES DE DESCARGA MEJORADOS */}
+            <button onClick={() => downloadCSV('active')} className="w-full md:w-auto px-4 py-3 md:py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm">
+                <FileDown size={14} /> CSV Activos
+            </button>
+            <button onClick={() => downloadCSV('all')} className="w-full md:w-auto px-4 py-3 md:py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md">
+                <FileDown size={14} /> CSV Histórico Completo
+            </button>
         </div>
       </main>
       {/* ADD PATIENT MODAL */}
