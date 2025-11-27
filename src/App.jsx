@@ -154,6 +154,22 @@ export default function UroRoundsApp() {
     return () => unsubscribe();
   }, [firebaseUser, currentUser]);
 
+  // --- FILTROS ---
+  const filteredPatients = useMemo(() => {
+    let list = patients;
+    if (!showDischarged) list = list.filter(p => p.status === 'hospitalizado');
+    else list = list.filter(p => p.status === 'egresado');
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      list = list.filter(p => 
+        p.fullName.toLowerCase().includes(term) || 
+        p.bedNumber.toLowerCase().includes(term) ||
+        p.diagnosis.toLowerCase().includes(term)
+      );
+    }
+    return list;
+  }, [patients, searchTerm, showDischarged]);
+
   // --- FIX: ABRIR MODAL DE EDICIÓN CON REF ---
   useEffect(() => {
     if (editPatientForm && editModalRef.current) {
@@ -302,13 +318,17 @@ export default function UroRoundsApp() {
   };
 
   const downloadCSV = () => {
-    const activePatients = patients.filter(p => p.status === 'hospitalizado');
-    if (activePatients.length === 0) {
-      showFeedback('error', "No hay pacientes.");
+    // USA LA LISTA FILTRADA: Si ves Egresados, descarga Egresados.
+    const listToExport = filteredPatients;
+    
+    if (listToExport.length === 0) {
+      showFeedback('error', "No hay pacientes en la vista actual.");
       return;
     }
-    const headers = ["Servicio", "Cama", "Expediente", "Nombre", "Edad", "Diagnóstico", "Cirugía", "DM", "HAS", "Alergias", "Otros Ant.", "Fecha Ingreso", "Días Estancia"];
-    const rows = activePatients.map(p => [
+    
+    const headers = ["Estatus", "Servicio", "Cama", "Expediente", "Nombre", "Edad", "Diagnóstico", "Cirugía", "DM", "HAS", "Alergias", "Otros Ant.", "Fecha Ingreso", "Fecha Egreso", "Días Estancia"];
+    const rows = listToExport.map(p => [
+      p.status.toUpperCase(),
       p.serviceType,
       p.bedNumber,
       p.recordNumber,
@@ -321,33 +341,21 @@ export default function UroRoundsApp() {
       `"${p.medicalHistory?.allergies || 'Negadas'}"`,
       `"${p.medicalHistory?.others || ''}"`,
       p.admissionDate,
-      calculateLOS(p.admissionDate, undefined, 'hospitalizado')
+      p.dischargeDate ? p.dischargeDate : '-',
+      calculateLOS(p.admissionDate, p.dischargeDate, p.status)
     ]);
     const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `urorounds_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
+    // Nombre del archivo dinámico según lo que estés viendo
+    const prefix = showDischarged ? 'egresados' : 'activos';
+    link.setAttribute('download', `urorounds_${prefix}_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
-
-  const filteredPatients = useMemo(() => {
-    let list = patients;
-    if (!showDischarged) list = list.filter(p => p.status === 'hospitalizado');
-    else list = list.filter(p => p.status === 'egresado');
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      list = list.filter(p => 
-        p.fullName.toLowerCase().includes(term) || 
-        p.bedNumber.toLowerCase().includes(term) ||
-        p.diagnosis.toLowerCase().includes(term)
-      );
-    }
-    return list;
-  }, [patients, searchTerm, showDischarged]);
 
   const activePatient = patients.find(p => p.id === selectedPatientId);
 
@@ -477,13 +485,13 @@ export default function UroRoundsApp() {
              <ChevronRight className="rotate-180" size={16}/> Volver
           </button>
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6 relative">
-             {activePatient.status === 'hospitalizado' && (
-                <button onClick={() => openEditModal(activePatient)} className="absolute top-3 right-3 p-2 text-slate-400 bg-white/80 backdrop-blur rounded-full border border-slate-200 hover:text-blue-600 hover:bg-blue-50 transition-colors z-10 shadow-sm" title="Editar">
-                  <Edit2 size={18} />
-                </button>
-             )}
+             {/* BOTÓN DE EDITAR SIEMPRE VISIBLE (INCLUSO EGRESADOS) */}
+             <button onClick={() => openEditModal(activePatient)} className="absolute top-3 right-3 p-2 text-slate-400 bg-white/80 backdrop-blur rounded-full border border-slate-200 hover:text-blue-600 hover:bg-blue-50 transition-colors z-10 shadow-sm" title="Editar">
+                <Edit2 size={18} />
+             </button>
+             
             <div className={`px-4 md:px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${activePatient.status === 'egresado' ? 'bg-gray-100' : 'bg-blue-50/50'}`}>
-              <div className="flex items-start gap-4 flex-1"> {/* FIXED: Removed w-full, added flex-1 */}
+              <div className="flex items-start gap-4 flex-1">
                 <div className={`h-14 w-14 md:h-16 md:w-16 rounded-full flex items-center justify-center flex-shrink-0 ${activePatient.status === 'egresado' ? 'bg-gray-200 text-gray-500' : 'bg-blue-100 text-blue-600'}`}>
                   <User size={28} />
                 </div>
@@ -508,7 +516,6 @@ export default function UroRoundsApp() {
                   </div>
                 </div>
               </div>
-              {/* FIXED: DESKTOP DISCHARGE BUTTON VISIBLE */}
               {activePatient.status === 'hospitalizado' && (
                 <button onClick={() => setShowDischargeModal(true)} className="hidden md:flex bg-white border border-red-200 text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-medium items-center gap-2 transition-colors shadow-sm ml-auto">
                   <LogOut size={16} /> Egresar Paciente
