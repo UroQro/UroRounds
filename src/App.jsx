@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -49,7 +49,6 @@ const app = initializeApp(firebaseConfig || {});
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Helper para rutas (Compatible Vercel y Local)
 const getCollectionRef = (collName) => {
   if (isVercel) {
     return collection(db, collName);
@@ -115,6 +114,10 @@ export default function UroRoundsApp() {
   const [editPatientForm, setEditPatientForm] = useState(null);
   const [newNote, setNewNote] = useState('');
   const [newNoteType, setNewNoteType] = useState('evolucion');
+  
+  // Refs para modales
+  const editModalRef = useRef(null);
+  const addModalRef = useRef(null);
 
   const showFeedback = (type, text) => {
     setFeedbackMsg({ type, text });
@@ -150,6 +153,13 @@ export default function UroRoundsApp() {
     }, (error) => showFeedback('error', 'Error de conexión'));
     return () => unsubscribe();
   }, [firebaseUser, currentUser]);
+
+  // --- FIX: ABRIR MODAL DE EDICIÓN CON REF ---
+  useEffect(() => {
+    if (editPatientForm && editModalRef.current) {
+        editModalRef.current.showModal();
+    }
+  }, [editPatientForm]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -213,8 +223,7 @@ export default function UroRoundsApp() {
         medicalHistory: { dm: false, has: false, allergies: '', others: '' }
       });
       showFeedback('success', 'Paciente ingresado');
-      const modal = document.getElementById('add-patient-modal');
-      if (modal) modal.close();
+      if (addModalRef.current) addModalRef.current.close();
     } catch (err) {
       showFeedback('error', "Error ingresando paciente.");
     }
@@ -240,8 +249,7 @@ export default function UroRoundsApp() {
       });
       showFeedback('success', 'Ficha actualizada');
       setEditPatientForm(null); 
-      const modal = document.getElementById('edit-patient-modal');
-      if (modal) modal.close();
+      if (editModalRef.current) editModalRef.current.close();
     } catch (err) {
       showFeedback('error', "Error actualizando.");
     }
@@ -249,8 +257,6 @@ export default function UroRoundsApp() {
 
   const openEditModal = (patient) => {
     setEditPatientForm({ ...patient });
-    const modal = document.getElementById('edit-patient-modal');
-    if (modal) modal.showModal();
   };
 
   const handleAddNote = async () => {
@@ -477,7 +483,7 @@ export default function UroRoundsApp() {
                 </button>
              )}
             <div className={`px-4 md:px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${activePatient.status === 'egresado' ? 'bg-gray-100' : 'bg-blue-50/50'}`}>
-              <div className="flex items-start gap-4 w-full">
+              <div className="flex items-start gap-4 flex-1"> {/* FIXED: Removed w-full, added flex-1 */}
                 <div className={`h-14 w-14 md:h-16 md:w-16 rounded-full flex items-center justify-center flex-shrink-0 ${activePatient.status === 'egresado' ? 'bg-gray-200 text-gray-500' : 'bg-blue-100 text-blue-600'}`}>
                   <User size={28} />
                 </div>
@@ -502,6 +508,12 @@ export default function UroRoundsApp() {
                   </div>
                 </div>
               </div>
+              {/* FIXED: DESKTOP DISCHARGE BUTTON VISIBLE */}
+              {activePatient.status === 'hospitalizado' && (
+                <button onClick={() => setShowDischargeModal(true)} className="hidden md:flex bg-white border border-red-200 text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-medium items-center gap-2 transition-colors shadow-sm ml-auto">
+                  <LogOut size={16} /> Egresar Paciente
+                </button>
+              )}
             </div>
             {(activePatient.medicalHistory?.allergies || activePatient.medicalHistory?.others) && (
                 <div className="px-4 md:px-6 py-2 bg-red-50/50 border-b border-red-100 text-xs text-slate-700 grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
@@ -618,7 +630,7 @@ export default function UroRoundsApp() {
             <button onClick={() => setShowDischarged(!showDischarged)} className={`flex-1 md:flex-none px-4 py-3 md:py-2 rounded-xl text-sm font-medium transition-colors border shadow-sm ${showDischarged ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'}`}>
               {showDischarged ? 'Ver Activos' : 'Ver Egreso'}
             </button>
-            <button onClick={() => { const modal = document.getElementById('add-patient-modal'); if(modal) modal.showModal(); }} className="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 md:py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md shadow-blue-200 active:scale-95 transition-transform">
+            <button onClick={() => { if(addModalRef.current) addModalRef.current.showModal(); }} className="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 md:py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md shadow-blue-200 active:scale-95 transition-transform">
               <Plus size={18} /> Ingreso
             </button>
           </div>
@@ -731,11 +743,12 @@ export default function UroRoundsApp() {
             <button onClick={downloadCSV} className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 hover:underline decoration-slate-300 py-4"><Download size={14} /> Descargar censo (.csv)</button>
         </div>
       </main>
-      <dialog id="add-patient-modal" className="modal p-0 rounded-xl shadow-2xl backdrop:bg-slate-900/60 w-full max-w-2xl open:animate-fade-in m-4 md:m-auto h-[85vh] md:h-auto">
+      {/* ADD PATIENT MODAL */}
+      <dialog ref={addModalRef} id="add-patient-modal" className="modal p-0 rounded-xl shadow-2xl backdrop:bg-slate-900/60 w-full max-w-2xl open:animate-fade-in m-4 md:m-auto h-[85vh] md:h-auto">
         <div className="bg-white p-5 md:p-6 h-full overflow-y-auto">
           <div className="flex justify-between items-center mb-6 sticky top-0 bg-white z-10 pb-2 border-b border-slate-50">
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Plus className="text-blue-600"/> Ingreso Paciente</h3>
-            <button onClick={() => (document.getElementById('add-patient-modal')).close()} className="text-slate-400 hover:text-slate-600 p-2">✕</button>
+            <button onClick={() => addModalRef.current.close()} className="text-slate-400 hover:text-slate-600 p-2">✕</button>
           </div>
           <form onSubmit={handleAddPatient} className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
             <div className="md:col-span-2 flex gap-4 bg-slate-50 p-3 rounded-lg border border-slate-100">
@@ -824,18 +837,18 @@ export default function UroRoundsApp() {
                 </div>
             </div>
             <div className="md:col-span-2 flex gap-3 mt-6 pt-4 border-t sticky bottom-0 bg-white">
-              <button type="button" onClick={() => (document.getElementById('add-patient-modal')).close()} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium">Cancelar</button>
+              <button type="button" onClick={() => addModalRef.current.close()} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium">Cancelar</button>
               <button type="submit" className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200">Guardar</button>
             </div>
           </form>
         </div>
       </dialog>
        {editPatientForm && (
-        <dialog id="edit-patient-modal" className="modal p-0 rounded-xl shadow-2xl backdrop:bg-slate-900/60 w-full max-w-2xl open:animate-fade-in m-4 md:m-auto h-[85vh] md:h-auto">
+        <dialog ref={editModalRef} id="edit-patient-modal" className="modal p-0 rounded-xl shadow-2xl backdrop:bg-slate-900/60 w-full max-w-2xl open:animate-fade-in m-4 md:m-auto h-[85vh] md:h-auto">
             <div className="bg-white p-5 md:p-6 h-full overflow-y-auto">
             <div className="flex justify-between items-center mb-6 sticky top-0 bg-white z-10 pb-2 border-b border-slate-50">
                 <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Edit2 className="text-blue-600"/> Editar Ficha</h3>
-                <button onClick={() => setEditPatientForm(null)} className="text-slate-400 hover:text-slate-600 p-2">✕</button>
+                <button onClick={() => { setEditPatientForm(null); editModalRef.current.close(); }} className="text-slate-400 hover:text-slate-600 p-2">✕</button>
             </div>
             <form onSubmit={handleEditPatient} className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
                 <div className="md:col-span-2 flex gap-4 bg-slate-50 p-3 rounded-lg border border-slate-100">
@@ -924,7 +937,7 @@ export default function UroRoundsApp() {
                     </div>
                 </div>
                 <div className="md:col-span-2 flex gap-3 mt-6 pt-4 border-t sticky bottom-0 bg-white">
-                    <button type="button" onClick={() => setEditPatientForm(null)} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium">Cancelar</button>
+                    <button type="button" onClick={() => { setEditPatientForm(null); editModalRef.current.close(); }} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium">Cancelar</button>
                     <button type="submit" className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200">Guardar</button>
                 </div>
             </form>
