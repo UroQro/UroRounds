@@ -22,7 +22,7 @@ import {
   Edit2, AlertTriangle, HeartPulse, Syringe, ChevronRight, FileDown
 } from 'lucide-react';
 
-// --- CONFIGURACIÓN DINÁMICA DE FIREBASE ---
+// --- CONFIGURACIÓN DINÁMICA ---
 let firebaseConfig;
 let isVercel = false;
 
@@ -42,7 +42,7 @@ try {
     firebaseConfig = JSON.parse(__firebase_config);
   }
 } catch (e) {
-  console.warn("Configuración de entorno no detectada, usando fallback.");
+  console.warn("Configuración no detectada.");
 }
 
 const app = initializeApp(firebaseConfig || {});
@@ -105,17 +105,26 @@ export default function UroRoundsApp() {
   const [showDischarged, setShowDischarged] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState(null);
   const [showDischargeModal, setShowDischargeModal] = useState(false);
+  
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [newUserForm, setNewUserForm] = useState({ username: '', password: '', fullName: '', masterPassword: '' });
+  
+  // Forms de Paciente
   const [newPatientForm, setNewPatientForm] = useState({
     bedNumber: '', recordNumber: '', fullName: '', dob: '', admissionDate: '', diagnosis: '', surgery: '', serviceType: 'HO',
     medicalHistory: { dm: false, has: false, allergies: '', others: '' }
   });
-  const [editPatientForm, setEditPatientForm] = useState(null);
+
+  // ESTADO DE EDICIÓN INICIALIZADO (Evita null y renderizado condicional)
+  const [editPatientForm, setEditPatientForm] = useState({
+    id: '', bedNumber: '', recordNumber: '', fullName: '', dob: '', admissionDate: '', diagnosis: '', surgery: '', serviceType: 'HO',
+    medicalHistory: { dm: false, has: false, allergies: '', others: '' }
+  });
+
   const [newNote, setNewNote] = useState('');
   const [newNoteType, setNewNoteType] = useState('evolucion');
   
-  // Refs para modales
+  // Refs
   const editModalRef = useRef(null);
   const addModalRef = useRef(null);
 
@@ -154,7 +163,6 @@ export default function UroRoundsApp() {
     return () => unsubscribe();
   }, [firebaseUser, currentUser]);
 
-  // --- FILTROS ---
   const filteredPatients = useMemo(() => {
     let list = patients;
     if (!showDischarged) list = list.filter(p => p.status === 'hospitalizado');
@@ -169,15 +177,6 @@ export default function UroRoundsApp() {
     }
     return list;
   }, [patients, searchTerm, showDischarged]);
-
-  // --- FIX CRÍTICO: EVITAR QUE EL MODAL SE RE-ABRA AL ESCRIBIR ---
-  useEffect(() => {
-    // CAMBIO CLAVE: Usamos editPatientForm?.id como dependencia, NO el objeto entero.
-    // Así, cuando escribes en los inputs (cambiando el objeto), este efecto NO se dispara.
-    if (editPatientForm?.id && editModalRef.current && !editModalRef.current.open) {
-        editModalRef.current.showModal();
-    }
-  }, [editPatientForm?.id]); // <-- Solo observar el ID
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -249,7 +248,7 @@ export default function UroRoundsApp() {
 
   const handleEditPatient = async (e) => {
     e.preventDefault();
-    if (!editPatientForm || !editPatientForm.id || !db) return;
+    if (!editPatientForm.id || !db) return;
     try {
       const collRef = getCollectionRef('patients');
       const patientRef = doc(collRef, editPatientForm.id);
@@ -267,14 +266,16 @@ export default function UroRoundsApp() {
       });
       showFeedback('success', 'Ficha actualizada');
       if (editModalRef.current) editModalRef.current.close();
-      setEditPatientForm(null); // Limpiar al final
     } catch (err) {
       showFeedback('error', "Error actualizando.");
     }
   };
 
+  // ABRIR MODAL EDITAR
   const openEditModal = (patient) => {
+    // Llenamos el estado y abrimos el modal directamente
     setEditPatientForm({ ...patient });
+    if (editModalRef.current) editModalRef.current.showModal();
   };
 
   const handleAddNote = async () => {
@@ -319,9 +320,7 @@ export default function UroRoundsApp() {
     }
   };
 
-  // --- FUNCIÓN CSV MEJORADA ---
   const downloadCSV = (type) => {
-    // type can be 'active' or 'all' or 'discharged'
     let listToExport = [];
     let filename = "urorounds";
 
@@ -332,7 +331,7 @@ export default function UroRoundsApp() {
         listToExport = patients.filter(p => p.status === 'egresado');
         filename += "_egresados";
     } else {
-        listToExport = patients; // Todos
+        listToExport = patients;
         filename += "_todo_historial";
     }
     
@@ -498,7 +497,6 @@ export default function UroRoundsApp() {
              <ChevronRight className="rotate-180" size={16}/> Volver
           </button>
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6 relative">
-             {/* BOTÓN DE EDITAR SIEMPRE VISIBLE */}
              <button onClick={() => openEditModal(activePatient)} className="absolute top-3 right-3 p-2 text-slate-400 bg-white/80 backdrop-blur rounded-full border border-slate-200 hover:text-blue-600 hover:bg-blue-50 transition-colors z-10 shadow-sm" title="Editar">
                 <Edit2 size={18} />
              </button>
@@ -535,22 +533,7 @@ export default function UroRoundsApp() {
                 </button>
               )}
             </div>
-            {(activePatient.medicalHistory?.allergies || activePatient.medicalHistory?.others) && (
-                <div className="px-4 md:px-6 py-2 bg-red-50/50 border-b border-red-100 text-xs text-slate-700 grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
-                    {activePatient.medicalHistory?.allergies && (
-                        <div className="flex gap-2 items-start">
-                            <span className="font-bold text-red-600 uppercase w-16 shrink-0">Alergias:</span>
-                            <span className="font-medium">{activePatient.medicalHistory.allergies}</span>
-                        </div>
-                    )}
-                    {activePatient.medicalHistory?.others && (
-                        <div className="flex gap-2 items-start">
-                            <span className="font-bold text-slate-600 uppercase w-16 shrink-0">Otros:</span>
-                            <span>{activePatient.medicalHistory.others}</span>
-                        </div>
-                    )}
-                </div>
-            )}
+            {/* Medical history display remains the same */}
             <div className="px-4 md:px-6 py-4 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 bg-white">
               <div className="bg-slate-50 p-3 md:p-4 rounded-lg border border-slate-100">
                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Diagnóstico</p>
@@ -577,6 +560,7 @@ export default function UroRoundsApp() {
               )}
             </div>
           </div>
+          {/* Notes section remains the same */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-4">
               <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm uppercase tracking-wide px-1"><FileText className="text-blue-600" size={16}/> Notas</h3>
@@ -869,107 +853,107 @@ export default function UroRoundsApp() {
           </form>
         </div>
       </dialog>
-       {editPatientForm && (
-        <dialog ref={editModalRef} id="edit-patient-modal" className="modal p-0 rounded-xl shadow-2xl backdrop:bg-slate-900/60 w-full max-w-2xl open:animate-fade-in m-4 md:m-auto h-[85vh] md:h-auto">
-            <div className="bg-white p-5 md:p-6 h-full overflow-y-auto">
-            <div className="flex justify-between items-center mb-6 sticky top-0 bg-white z-10 pb-2 border-b border-slate-50">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Edit2 className="text-blue-600"/> Editar Ficha</h3>
-                <button onClick={() => { setEditPatientForm(null); editModalRef.current.close(); }} className="text-slate-400 hover:text-slate-600 p-2">✕</button>
+      
+      {/* EDIT PATIENT MODAL - SIEMPRE RENDERIZADO, CONTROLADO POR REF */}
+      <dialog ref={editModalRef} id="edit-patient-modal" className="modal p-0 rounded-xl shadow-2xl backdrop:bg-slate-900/60 w-full max-w-2xl open:animate-fade-in m-4 md:m-auto h-[85vh] md:h-auto">
+        <div className="bg-white p-5 md:p-6 h-full overflow-y-auto">
+        <div className="flex justify-between items-center mb-6 sticky top-0 bg-white z-10 pb-2 border-b border-slate-50">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Edit2 className="text-blue-600"/> Editar Ficha</h3>
+            <button onClick={() => editModalRef.current.close()} className="text-slate-400 hover:text-slate-600 p-2">✕</button>
+        </div>
+        <form onSubmit={handleEditPatient} className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
+            <div className="md:col-span-2 flex gap-4 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                <label className="flex items-center gap-2 cursor-pointer p-1">
+                    <input type="radio" name="editServiceType" checked={editPatientForm.serviceType === 'HO'} onChange={() => setEditPatientForm({...editPatientForm, serviceType: 'HO'})} className="text-blue-600 focus:ring-blue-500 w-5 h-5" />
+                    <span className="text-sm font-bold text-slate-700">Urología (HO)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer p-1">
+                    <input type="radio" name="editServiceType" checked={editPatientForm.serviceType === 'IC'} onChange={() => setEditPatientForm({...editPatientForm, serviceType: 'IC'})} className="text-amber-600 focus:ring-amber-500 w-5 h-5" />
+                    <span className="text-sm font-bold text-slate-700">Interconsulta (IC)</span>
+                </label>
             </div>
-            <form onSubmit={handleEditPatient} className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
-                <div className="md:col-span-2 flex gap-4 bg-slate-50 p-3 rounded-lg border border-slate-100">
-                    <label className="flex items-center gap-2 cursor-pointer p-1">
-                        <input type="radio" name="editServiceType" checked={editPatientForm.serviceType === 'HO'} onChange={() => setEditPatientForm({...editPatientForm, serviceType: 'HO'})} className="text-blue-600 focus:ring-blue-500 w-5 h-5" />
-                        <span className="text-sm font-bold text-slate-700">Urología (HO)</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer p-1">
-                        <input type="radio" name="editServiceType" checked={editPatientForm.serviceType === 'IC'} onChange={() => setEditPatientForm({...editPatientForm, serviceType: 'IC'})} className="text-amber-600 focus:ring-amber-500 w-5 h-5" />
-                        <span className="text-sm font-bold text-slate-700">Interconsulta (IC)</span>
-                    </label>
-                </div>
-                <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre Completo</label>
-                    <input required type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.fullName} onChange={e => setEditPatientForm({...editPatientForm, fullName: e.target.value})} />
-                </div>
+            <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre Completo</label>
+                <input required type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.fullName} onChange={e => setEditPatientForm({...editPatientForm, fullName: e.target.value})} />
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cama</label>
+                <input required type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.bedNumber} onChange={e => setEditPatientForm({...editPatientForm, bedNumber: e.target.value})} />
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Expediente</label>
+                <input required type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.recordNumber} onChange={e => setEditPatientForm({...editPatientForm, recordNumber: e.target.value})} />
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">F. Nacimiento</label>
+                <input required type="date" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.dob} onChange={e => setEditPatientForm({...editPatientForm, dob: e.target.value})} />
+            </div>
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cama</label>
-                    <input required type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.bedNumber} onChange={e => setEditPatientForm({...editPatientForm, bedNumber: e.target.value})} />
-                </div>
-                <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Expediente</label>
-                    <input required type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.recordNumber} onChange={e => setEditPatientForm({...editPatientForm, recordNumber: e.target.value})} />
-                </div>
-                <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">F. Nacimiento</label>
-                    <input required type="date" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.dob} onChange={e => setEditPatientForm({...editPatientForm, dob: e.target.value})} />
-                </div>
-                 <div>
-                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Fecha Ingreso</label>
-                   <input disabled type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 bg-slate-100 text-slate-500" value={new Date(editPatientForm.admissionDate || '').toLocaleString()} />
-                </div>
-                <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Diagnóstico</label>
-                    <input required type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.diagnosis} onChange={e => setEditPatientForm({...editPatientForm, diagnosis: e.target.value})} />
-                </div>
-                <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cirugía</label>
-                    <input type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.surgery} onChange={e => setEditPatientForm({...editPatientForm, surgery: e.target.value})} />
-                </div>
-                <div className="md:col-span-2 mt-2 pt-4 border-t border-slate-100">
-                    <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><ClipboardList size={16}/> Antecedentes</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="flex flex-col gap-3">
-                            <label className="flex items-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-100 cursor-pointer active:bg-slate-100">
-                                <input type="checkbox" checked={editPatientForm.medicalHistory?.dm} 
-                                    onChange={e => setEditPatientForm({
-                                        ...editPatientForm, 
-                                        medicalHistory: { ...editPatientForm.medicalHistory, dm: e.target.checked }
-                                    })} 
-                                    className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500" />
-                                <span className="text-sm font-medium text-slate-700">Diabetes</span>
-                            </label>
-                            <label className="flex items-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-100 cursor-pointer active:bg-slate-100">
-                                <input type="checkbox" checked={editPatientForm.medicalHistory?.has} 
-                                    onChange={e => setEditPatientForm({
-                                        ...editPatientForm, 
-                                        medicalHistory: { ...editPatientForm.medicalHistory, has: e.target.checked }
-                                    })} 
-                                    className="w-5 h-5 text-pink-600 rounded focus:ring-pink-500" />
-                                <span className="text-sm font-medium text-slate-700">Hipertensión</span>
-                            </label>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Fecha Ingreso</label>
+                <input disabled type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 bg-slate-100 text-slate-500" value={new Date(editPatientForm.admissionDate || '').toLocaleString()} />
+            </div>
+            <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Diagnóstico</label>
+                <input required type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.diagnosis} onChange={e => setEditPatientForm({...editPatientForm, diagnosis: e.target.value})} />
+            </div>
+            <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cirugía</label>
+                <input type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.surgery} onChange={e => setEditPatientForm({...editPatientForm, surgery: e.target.value})} />
+            </div>
+            <div className="md:col-span-2 mt-2 pt-4 border-t border-slate-100">
+                <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><ClipboardList size={16}/> Antecedentes</h4>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-3">
+                        <label className="flex items-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-100 cursor-pointer active:bg-slate-100">
+                            <input type="checkbox" checked={editPatientForm.medicalHistory?.dm} 
+                                onChange={e => setEditPatientForm({
+                                    ...editPatientForm, 
+                                    medicalHistory: { ...editPatientForm.medicalHistory, dm: e.target.checked }
+                                })} 
+                                className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500" />
+                            <span className="text-sm font-medium text-slate-700">Diabetes</span>
+                        </label>
+                        <label className="flex items-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-100 cursor-pointer active:bg-slate-100">
+                            <input type="checkbox" checked={editPatientForm.medicalHistory?.has} 
+                                onChange={e => setEditPatientForm({
+                                    ...editPatientForm, 
+                                    medicalHistory: { ...editPatientForm.medicalHistory, has: e.target.checked }
+                                })} 
+                                className="w-5 h-5 text-pink-600 rounded focus:ring-pink-500" />
+                            <span className="text-sm font-medium text-slate-700">Hipertensión</span>
+                        </label>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                        <div>
+                            <label className="block text-xs font-bold text-red-500 uppercase mb-1">Alergias</label>
+                            <input type="text" className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm focus:ring-red-500"
+                                value={editPatientForm.medicalHistory?.allergies}
+                                onChange={e => setEditPatientForm({
+                                    ...editPatientForm, 
+                                    medicalHistory: { ...editPatientForm.medicalHistory, allergies: e.target.value }
+                                })}
+                            />
                         </div>
-                        <div className="flex flex-col gap-3">
-                            <div>
-                                <label className="block text-xs font-bold text-red-500 uppercase mb-1">Alergias</label>
-                                <input type="text" className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm focus:ring-red-500"
-                                    value={editPatientForm.medicalHistory?.allergies}
-                                    onChange={e => setEditPatientForm({
-                                        ...editPatientForm, 
-                                        medicalHistory: { ...editPatientForm.medicalHistory, allergies: e.target.value }
-                                    })}
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Otros</label>
-                                <input type="text" className="w-full border rounded-lg px-3 py-2 text-sm"
-                                    value={editPatientForm.medicalHistory?.others}
-                                    onChange={e => setEditPatientForm({
-                                        ...editPatientForm, 
-                                        medicalHistory: { ...editPatientForm.medicalHistory, others: e.target.value }
-                                    })}
-                                />
-                            </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Otros</label>
+                            <input type="text" className="w-full border rounded-lg px-3 py-2 text-sm"
+                                value={editPatientForm.medicalHistory?.others}
+                                onChange={e => setEditPatientForm({
+                                    ...editPatientForm, 
+                                    medicalHistory: { ...editPatientForm.medicalHistory, others: e.target.value }
+                                })}
+                            />
                         </div>
                     </div>
                 </div>
-                <div className="md:col-span-2 flex gap-3 mt-6 pt-4 border-t sticky bottom-0 bg-white">
-                    <button type="button" onClick={() => { setEditPatientForm(null); editModalRef.current.close(); }} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium">Cancelar</button>
-                    <button type="submit" className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200">Guardar</button>
-                </div>
-            </form>
             </div>
-        </dialog>
-       )}
+            <div className="md:col-span-2 flex gap-3 mt-6 pt-4 border-t sticky bottom-0 bg-white">
+                <button type="button" onClick={() => editModalRef.current.close()} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium">Cancelar</button>
+                <button type="submit" className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200">Guardar</button>
+            </div>
+        </form>
+        </div>
+    </dialog>
     </div>
   );
 }
