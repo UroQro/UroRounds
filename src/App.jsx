@@ -170,9 +170,10 @@ export default function UroRoundsApp() {
     return list;
   }, [patients, searchTerm, showDischarged]);
 
-  // --- FIX: ABRIR MODAL DE EDICIÓN CON REF ---
+  // --- FIX CRÍTICO: EVITAR QUE EL MODAL SE RE-ABRA AL ESCRIBIR ---
   useEffect(() => {
-    if (editPatientForm && editModalRef.current) {
+    // Solo abre el modal si existe, tenemos datos, Y NO ESTÁ YA ABIERTO
+    if (editPatientForm && editModalRef.current && !editModalRef.current.open) {
         editModalRef.current.showModal();
     }
   }, [editPatientForm]);
@@ -318,11 +319,11 @@ export default function UroRoundsApp() {
   };
 
   const downloadCSV = () => {
-    // USA LA LISTA FILTRADA: Si ves Egresados, descarga Egresados.
+    // USA LA LISTA FILTRADA (Activos o Egresados según lo que ves)
     const listToExport = filteredPatients;
     
     if (listToExport.length === 0) {
-      showFeedback('error', "No hay pacientes en la vista actual.");
+      showFeedback('error', "No hay pacientes para exportar.");
       return;
     }
     
