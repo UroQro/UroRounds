@@ -23,33 +23,33 @@ import {
   Edit2, AlertTriangle, HeartPulse, Syringe, ChevronRight, FileDown, Trash2
 } from 'lucide-react';
 
-// --- CONFIGURACIÓN DINÁMICA DE FIREBASE ---
+// --- CONFIGURACIÓN DE FIREBASE (HARDCODED PARA EVITAR ERRORES) ---
 let firebaseConfig;
 let isVercel = false;
 
-try {
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_FIREBASE_API_KEY) {
-    firebaseConfig = {
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-      appId: import.meta.env.VITE_FIREBASE_APP_ID
-    };
-    isVercel = true;
-  } 
-  else if (typeof __firebase_config !== 'undefined') {
-    firebaseConfig = JSON.parse(__firebase_config);
-  }
-} catch (e) {
-  console.warn("Configuración de entorno no detectada, usando fallback.");
+// 1. Si existe config inyectada (Entorno de prueba Chat)
+if (typeof __firebase_config !== 'undefined') {
+  firebaseConfig = JSON.parse(__firebase_config);
+  isVercel = false; 
+} 
+// 2. Si no, usamos tus credenciales reales (Entorno Vercel)
+else {
+  firebaseConfig = {
+    apiKey: "AIzaSyCuPM_sM8zvkpIzSRXc3MCYx2JaqGLbuhU",
+    authDomain: "urorounds.firebaseapp.com",
+    projectId: "urorounds",
+    storageBucket: "urorounds.firebasestorage.app",
+    messagingSenderId: "498817272062",
+    appId: "1:498817272062:web:65460e165258a832187daf"
+  };
+  isVercel = true; 
 }
 
-const app = initializeApp(firebaseConfig || {});
+const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// Helper para rutas (Compatible Vercel y Local)
 const getCollectionRef = (collName) => {
   if (isVercel) {
     return collection(db, collName);
@@ -109,7 +109,7 @@ export default function UroRoundsApp() {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [newUserForm, setNewUserForm] = useState({ username: '', password: '', fullName: '', masterPassword: '' });
   
-  // FORMULARIOS
+  // Estado Inicial Paciente
   const initialPatientState = {
     bedNumber: '', recordNumber: '', fullName: '', dob: '', admissionDate: '', diagnosis: '', surgery: '', serviceType: 'HO',
     medicalHistory: { dm: false, has: false, allergies: '', others: '' }
@@ -117,7 +117,7 @@ export default function UroRoundsApp() {
 
   const [newPatientForm, setNewPatientForm] = useState(initialPatientState);
   
-  // ESTADO EDICIÓN SIEMPRE INICIALIZADO (Evita errores de renderizado condicional)
+  // Estado Edición (Siempre inicializado)
   const [editPatientForm, setEditPatientForm] = useState({ ...initialPatientState, id: '' });
 
   const [newNote, setNewNote] = useState('');
@@ -176,6 +176,8 @@ export default function UroRoundsApp() {
     }
     return list;
   }, [patients, searchTerm, showDischarged]);
+
+  // --- MANEJADORES ---
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -256,7 +258,7 @@ export default function UroRoundsApp() {
         recordNumber: editPatientForm.recordNumber,
         dob: editPatientForm.dob,
         age: calculatedAge,
-        admissionDate: editPatientForm.admissionDate, // Ahora editable
+        admissionDate: editPatientForm.admissionDate,
         diagnosis: editPatientForm.diagnosis,
         surgery: editPatientForm.surgery,
         serviceType: editPatientForm.serviceType,
@@ -269,23 +271,19 @@ export default function UroRoundsApp() {
     }
   };
 
-  // --- NUEVA FUNCIÓN: ELIMINAR ---
   const handleDeletePatient = async () => {
     if (!editPatientForm.id || !db) return;
-    
-    if (!confirm("¿ESTÁS SEGURO? Esta acción borrará al paciente y todas sus notas permanentemente. No se puede deshacer.")) {
-        return;
-    }
+    if (!confirm("¿ESTÁS SEGURO? Se borrará permanentemente.")) return;
 
     try {
         const collRef = getCollectionRef('patients');
         const patientRef = doc(collRef, editPatientForm.id);
         await deleteDoc(patientRef);
         
-        showFeedback('success', 'Paciente eliminado del sistema');
+        showFeedback('success', 'Paciente eliminado');
         if (editModalRef.current) editModalRef.current.close();
         
-        // Si estábamos viendo ese paciente, volver a la lista
+        // Si estábamos en detalle de ese paciente, volver a lista
         if (selectedPatientId === editPatientForm.id) {
             setSelectedPatientId(null);
             setView('list');
@@ -297,8 +295,8 @@ export default function UroRoundsApp() {
   };
 
   const openEditModal = (patient) => {
-    setEditPatientForm({ ...patient }); // Carga datos
-    if (editModalRef.current) editModalRef.current.showModal(); // Muestra
+    setEditPatientForm({ ...patient }); 
+    if (editModalRef.current) editModalRef.current.showModal();
   };
 
   const handleAddNote = async () => {
@@ -864,7 +862,7 @@ export default function UroRoundsApp() {
                             <input type="text" placeholder="Especifique..." className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm focus:ring-red-500"
                                 value={newPatientForm.medicalHistory?.allergies}
                                 onChange={e => setNewPatientForm({
-                                    ...newPatientForm, 
+                                    ...newPatientForm,
                                     medicalHistory: { ...newPatientForm.medicalHistory, allergies: e.target.value }
                                 })}
                             />
@@ -874,7 +872,7 @@ export default function UroRoundsApp() {
                             <input type="text" placeholder="Otros..." className="w-full border rounded-lg px-3 py-2 text-sm"
                                 value={newPatientForm.medicalHistory?.others}
                                 onChange={e => setNewPatientForm({
-                                    ...newPatientForm, 
+                                    ...newPatientForm,
                                     medicalHistory: { ...newPatientForm.medicalHistory, others: e.target.value }
                                 })}
                             />
