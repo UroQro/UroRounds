@@ -10,6 +10,7 @@ import {
   collection, 
   addDoc, 
   updateDoc, 
+  deleteDoc,
   doc, 
   onSnapshot, 
   serverTimestamp,
@@ -19,10 +20,10 @@ import {
   Activity, User, FileText, Plus, LogOut, Save, Search, Download, 
   CheckCircle, AlertCircle, Users, Lock, BedDouble, ClipboardList, 
   Stethoscope, Calendar, Link as LinkIcon, ExternalLink, Clock, 
-  Edit2, AlertTriangle, HeartPulse, Syringe, ChevronRight, FileDown
+  Edit2, AlertTriangle, HeartPulse, Syringe, ChevronRight, FileDown, Trash2
 } from 'lucide-react';
 
-// --- CONFIGURACIÓN DINÁMICA ---
+// --- CONFIGURACIÓN DINÁMICA DE FIREBASE ---
 let firebaseConfig;
 let isVercel = false;
 
@@ -42,7 +43,7 @@ try {
     firebaseConfig = JSON.parse(__firebase_config);
   }
 } catch (e) {
-  console.warn("Configuración no detectada.");
+  console.warn("Configuración de entorno no detectada, usando fallback.");
 }
 
 const app = initializeApp(firebaseConfig || {});
@@ -105,21 +106,19 @@ export default function UroRoundsApp() {
   const [showDischarged, setShowDischarged] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState(null);
   const [showDischargeModal, setShowDischargeModal] = useState(false);
-  
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [newUserForm, setNewUserForm] = useState({ username: '', password: '', fullName: '', masterPassword: '' });
   
-  // Forms de Paciente
-  const [newPatientForm, setNewPatientForm] = useState({
+  // FORMULARIOS
+  const initialPatientState = {
     bedNumber: '', recordNumber: '', fullName: '', dob: '', admissionDate: '', diagnosis: '', surgery: '', serviceType: 'HO',
     medicalHistory: { dm: false, has: false, allergies: '', others: '' }
-  });
+  };
 
-  // ESTADO DE EDICIÓN INICIALIZADO (Evita null y renderizado condicional)
-  const [editPatientForm, setEditPatientForm] = useState({
-    id: '', bedNumber: '', recordNumber: '', fullName: '', dob: '', admissionDate: '', diagnosis: '', surgery: '', serviceType: 'HO',
-    medicalHistory: { dm: false, has: false, allergies: '', others: '' }
-  });
+  const [newPatientForm, setNewPatientForm] = useState(initialPatientState);
+  
+  // ESTADO EDICIÓN SIEMPRE INICIALIZADO (Evita errores de renderizado condicional)
+  const [editPatientForm, setEditPatientForm] = useState({ ...initialPatientState, id: '' });
 
   const [newNote, setNewNote] = useState('');
   const [newNoteType, setNewNoteType] = useState('evolucion');
@@ -235,10 +234,7 @@ export default function UroRoundsApp() {
         createdAt: serverTimestamp()
       };
       await addDoc(getCollectionRef('patients'), newPatientData);
-      setNewPatientForm({
-        bedNumber: '', recordNumber: '', fullName: '', dob: '', admissionDate: '', diagnosis: '', surgery: '', serviceType: 'HO',
-        medicalHistory: { dm: false, has: false, allergies: '', others: '' }
-      });
+      setNewPatientForm(initialPatientState);
       showFeedback('success', 'Paciente ingresado');
       if (addModalRef.current) addModalRef.current.close();
     } catch (err) {
@@ -253,12 +249,14 @@ export default function UroRoundsApp() {
       const collRef = getCollectionRef('patients');
       const patientRef = doc(collRef, editPatientForm.id);
       const calculatedAge = calculateAge(editPatientForm.dob || '');
+      
       await updateDoc(patientRef, {
         fullName: editPatientForm.fullName,
         bedNumber: editPatientForm.bedNumber,
         recordNumber: editPatientForm.recordNumber,
         dob: editPatientForm.dob,
         age: calculatedAge,
+        admissionDate: editPatientForm.admissionDate, // Ahora editable
         diagnosis: editPatientForm.diagnosis,
         surgery: editPatientForm.surgery,
         serviceType: editPatientForm.serviceType,
@@ -271,11 +269,36 @@ export default function UroRoundsApp() {
     }
   };
 
-  // ABRIR MODAL EDITAR
+  // --- NUEVA FUNCIÓN: ELIMINAR ---
+  const handleDeletePatient = async () => {
+    if (!editPatientForm.id || !db) return;
+    
+    if (!confirm("¿ESTÁS SEGURO? Esta acción borrará al paciente y todas sus notas permanentemente. No se puede deshacer.")) {
+        return;
+    }
+
+    try {
+        const collRef = getCollectionRef('patients');
+        const patientRef = doc(collRef, editPatientForm.id);
+        await deleteDoc(patientRef);
+        
+        showFeedback('success', 'Paciente eliminado del sistema');
+        if (editModalRef.current) editModalRef.current.close();
+        
+        // Si estábamos viendo ese paciente, volver a la lista
+        if (selectedPatientId === editPatientForm.id) {
+            setSelectedPatientId(null);
+            setView('list');
+        }
+    } catch (err) {
+        console.error(err);
+        showFeedback('error', "Error al eliminar.");
+    }
+  };
+
   const openEditModal = (patient) => {
-    // Llenamos el estado y abrimos el modal directamente
-    setEditPatientForm({ ...patient });
-    if (editModalRef.current) editModalRef.current.showModal();
+    setEditPatientForm({ ...patient }); // Carga datos
+    if (editModalRef.current) editModalRef.current.showModal(); // Muestra
   };
 
   const handleAddNote = async () => {
@@ -533,7 +556,22 @@ export default function UroRoundsApp() {
                 </button>
               )}
             </div>
-            {/* Medical history display remains the same */}
+            {(activePatient.medicalHistory?.allergies || activePatient.medicalHistory?.others) && (
+                <div className="px-4 md:px-6 py-2 bg-red-50/50 border-b border-red-100 text-xs text-slate-700 grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
+                    {activePatient.medicalHistory?.allergies && (
+                        <div className="flex gap-2 items-start">
+                            <span className="font-bold text-red-600 uppercase w-16 shrink-0">Alergias:</span>
+                            <span className="font-medium">{activePatient.medicalHistory.allergies}</span>
+                        </div>
+                    )}
+                    {activePatient.medicalHistory?.others && (
+                        <div className="flex gap-2 items-start">
+                            <span className="font-bold text-slate-600 uppercase w-16 shrink-0">Otros:</span>
+                            <span>{activePatient.medicalHistory.others}</span>
+                        </div>
+                    )}
+                </div>
+            )}
             <div className="px-4 md:px-6 py-4 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 bg-white">
               <div className="bg-slate-50 p-3 md:p-4 rounded-lg border border-slate-100">
                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Diagnóstico</p>
@@ -560,7 +598,6 @@ export default function UroRoundsApp() {
               )}
             </div>
           </div>
-          {/* Notes section remains the same */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-4">
               <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm uppercase tracking-wide px-1"><FileText className="text-blue-600" size={16}/> Notas</h3>
@@ -744,7 +781,6 @@ export default function UroRoundsApp() {
             </div>
         </div>
         <div className="mt-6 flex flex-col md:flex-row justify-end items-center gap-4 pb-12 md:pb-0">
-            {/* BOTONES DE DESCARGA MEJORADOS */}
             <button onClick={() => downloadCSV('active')} className="w-full md:w-auto px-4 py-3 md:py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm">
                 <FileDown size={14} /> CSV Activos
             </button>
@@ -828,7 +864,7 @@ export default function UroRoundsApp() {
                             <input type="text" placeholder="Especifique..." className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm focus:ring-red-500"
                                 value={newPatientForm.medicalHistory?.allergies}
                                 onChange={e => setNewPatientForm({
-                                    ...newPatientForm,
+                                    ...newPatientForm, 
                                     medicalHistory: { ...newPatientForm.medicalHistory, allergies: e.target.value }
                                 })}
                             />
@@ -838,7 +874,7 @@ export default function UroRoundsApp() {
                             <input type="text" placeholder="Otros..." className="w-full border rounded-lg px-3 py-2 text-sm"
                                 value={newPatientForm.medicalHistory?.others}
                                 onChange={e => setNewPatientForm({
-                                    ...newPatientForm,
+                                    ...newPatientForm, 
                                     medicalHistory: { ...newPatientForm.medicalHistory, others: e.target.value }
                                 })}
                             />
@@ -854,7 +890,7 @@ export default function UroRoundsApp() {
         </div>
       </dialog>
       
-      {/* EDIT PATIENT MODAL - SIEMPRE RENDERIZADO, CONTROLADO POR REF */}
+      {/* MODAL EDITAR - SIEMPRE VISIBLE (no condicional) */}
       <dialog ref={editModalRef} id="edit-patient-modal" className="modal p-0 rounded-xl shadow-2xl backdrop:bg-slate-900/60 w-full max-w-2xl open:animate-fade-in m-4 md:m-auto h-[85vh] md:h-auto">
         <div className="bg-white p-5 md:p-6 h-full overflow-y-auto">
         <div className="flex justify-between items-center mb-6 sticky top-0 bg-white z-10 pb-2 border-b border-slate-50">
@@ -888,9 +924,9 @@ export default function UroRoundsApp() {
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">F. Nacimiento</label>
                 <input required type="date" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.dob} onChange={e => setEditPatientForm({...editPatientForm, dob: e.target.value})} />
             </div>
-                <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Fecha Ingreso</label>
-                <input disabled type="text" className="w-full border rounded-lg px-3 py-3 md:py-2 bg-slate-100 text-slate-500" value={new Date(editPatientForm.admissionDate || '').toLocaleString()} />
+            <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha Ingreso (Editable)</label>
+                <input required type="datetime-local" className="w-full border rounded-lg px-3 py-3 md:py-2 text-base" value={editPatientForm.admissionDate} onChange={e => setEditPatientForm({...editPatientForm, admissionDate: e.target.value})} />
             </div>
             <div className="md:col-span-2">
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Diagnóstico</label>
@@ -947,9 +983,12 @@ export default function UroRoundsApp() {
                     </div>
                 </div>
             </div>
-            <div className="md:col-span-2 flex gap-3 mt-6 pt-4 border-t sticky bottom-0 bg-white">
-                <button type="button" onClick={() => editModalRef.current.close()} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium">Cancelar</button>
-                <button type="submit" className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200">Guardar</button>
+            <div className="md:col-span-2 flex gap-3 mt-6 pt-4 border-t sticky bottom-0 bg-white justify-between items-center">
+                <button type="button" onClick={handleDeletePatient} className="px-4 py-3 rounded-xl bg-red-50 text-red-600 font-bold flex items-center gap-2 hover:bg-red-100"><Trash2 size={18}/> Eliminar</button>
+                <div className="flex gap-3">
+                    <button type="button" onClick={() => editModalRef.current.close()} className="px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium">Cancelar</button>
+                    <button type="submit" className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200">Guardar</button>
+                </div>
             </div>
         </form>
         </div>
